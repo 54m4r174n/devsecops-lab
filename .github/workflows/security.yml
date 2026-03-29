@@ -11,10 +11,10 @@ jobs:
   semgrep:
     name: "SAST - Semgrep"
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Run Semgrep
+        id: semgrep
         run: |
           pip install semgrep
           semgrep \
@@ -24,14 +24,21 @@ jobs:
             --config=p/flask \
             --config=p/sql-injection \
             --config=p/command-injection \
-            --verbose \
             --error \
-            .
+            . && echo "SEMGREP_STATUS=pass" >> $GITHUB_ENV \
+            || echo "SEMGREP_STATUS=fail" >> $GITHUB_ENV
+      - name: Save Status
+        run: echo "$SEMGREP_STATUS" > semgrep-status.txt
+      - name: Upload Status
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-status
+          path: semgrep-status.txt
 
   gitleaks:
     name: "Secret Scan - GitLeaks"
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,51 +47,85 @@ jobs:
         run: |
           wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
           tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
-          ./gitleaks detect --source . --verbose
+          ./gitleaks detect --source . --verbose \
+          && echo "GITLEAKS_STATUS=pass" >> $GITHUB_ENV \
+          || echo "GITLEAKS_STATUS=fail" >> $GITHUB_ENV
+      - name: Save Status
+        if: always()
+        run: echo "$GITLEAKS_STATUS" > gitleaks-status.txt
+      - name: Upload Status
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-status
+          path: gitleaks-status.txt
 
   sca:
     name: "SCA - pip-audit"
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
       - name: Run pip-audit
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt
+          pip-audit -r requirements.txt \
+          && echo "SCA_STATUS=pass" >> $GITHUB_ENV \
+          || echo "SCA_STATUS=fail" >> $GITHUB_ENV
+      - name: Save Status
+        if: always()
+        run: echo "$SCA_STATUS" > sca-status.txt
+      - name: Upload Status
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-status
+          path: sca-status.txt
 
   trivy:
     name: "Container Scan - Trivy"
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker Image
         run: docker build -t devsecops-lab:latest .
       - name: Run Trivy Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: devsecops-lab:latest
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: '1'
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            devsecops-lab:latest \
+          && echo "TRIVY_STATUS=pass" >> $GITHUB_ENV \
+          || echo "TRIVY_STATUS=fail" >> $GITHUB_ENV
       - name: Generate SBOM
         if: always()
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: devsecops-lab:latest
-          format: cyclonedx
-          output: sbom.json
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/output \
+            aquasec/trivy:latest image \
+            --format cyclonedx \
+            --output /output/sbom.json \
+            devsecops-lab:latest || true
       - name: Upload SBOM
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.json
+      - name: Save Status
+        if: always()
+        run: echo "$TRIVY_STATUS" > trivy-status.txt
+      - name: Upload Status
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-status
+          path: trivy-status.txt
 
   security-gate:
     name: "Security Gate"
@@ -92,23 +133,35 @@ jobs:
     needs: [semgrep, gitleaks, sca, trivy]
     if: always()
     steps:
-      - name: Check Results
+      - name: Download All Status Files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-status"
+          merge-multiple: true
+      - name: Evaluate Gate
         run: |
           echo "================================"
           echo "   SECURITY PIPELINE RESULTS"
           echo "================================"
-          echo "SAST Semgrep:    ${{ needs.semgrep.result }}"
-          echo "GitLeaks:        ${{ needs.gitleaks.result }}"
-          echo "SCA pip-audit:   ${{ needs.sca.result }}"
-          echo "Trivy Container: ${{ needs.trivy.result }}"
+          FAILED=0
+          for f in semgrep-status.txt gitleaks-status.txt sca-status.txt trivy-status.txt; do
+            NAME=$(echo $f | sed 's/-status.txt//')
+            if [ -f "$f" ]; then
+              STATUS=$(cat $f)
+              echo "$NAME: $STATUS"
+              if [ "$STATUS" = "fail" ]; then
+                FAILED=1
+              fi
+            else
+              echo "$NAME: unknown"
+              FAILED=1
+            fi
+          done
           echo "================================"
-          if [ "${{ needs.semgrep.result }}" = "failure" ] || \
-             [ "${{ needs.gitleaks.result }}" = "failure" ] || \
-             [ "${{ needs.sca.result }}" = "failure" ] || \
-             [ "${{ needs.trivy.result }}" = "failure" ]; then
-            echo "SECURITY GATE: FAILED"
+          if [ $FAILED -eq 1 ]; then
+            echo "SECURITY GATE: ❌ FAILED"
             echo "Fix vulnerabilities before deploying!"
             exit 1
           fi
-          echo "SECURITY GATE: PASSED"
+          echo "SECURITY GATE: ✅ PASSED"
 
