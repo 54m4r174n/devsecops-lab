@@ -1,0 +1,84 @@
+name: Security Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # JOB 1: SAST - Semgrep
+  semgrep:
+    name: "SAST - Semgrep"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Semgrep
+        run: |
+          pip install semgrep
+          semgrep --config=p/owasp-top-ten --config=p/python \
+          --json --output=semgrep-results.json . || true
+          semgrep --config=p/owasp-top-ten --config=p/python .
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: semgrep-results
+          path: semgrep-results.json
+
+  # JOB 2: Secret Scanning - GitLeaks
+  gitleaks:
+    name: "Secret Scan - GitLeaks"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Run GitLeaks
+        run: |
+          wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+          tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
+          ./gitleaks detect --source . --verbose || true
+
+  # JOB 3: SCA - pip-audit
+  sca:
+    name: "SCA - pip-audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || true
+
+  # JOB 4: Container Scan - Trivy
+  trivy:
+    name: "Container Scan - Trivy"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Docker Image
+        run: docker build -t devsecops-lab:latest .
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: devsecops-lab:latest
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: devsecops-lab:latest
+          format: cyclonedx
+          output: sbom.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.json
+
