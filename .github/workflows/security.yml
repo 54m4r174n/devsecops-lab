@@ -7,6 +7,11 @@ on:
     branches: [main]
 
 jobs:
+    name: Run Bandit
+    run: |
+    pip install bandit
+    bandit -r . -f json -o bandit-report.json
+
 
   semgrep:
     name: "SAST - Semgrep"
@@ -80,7 +85,11 @@ jobs:
         with:
           name: sca-status
           path: sca-status.txt
-
+  SBOM:
+    name: Generate SBOM
+  run: |
+    curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh
+    syft . -o json > sbom.json
   trivy:
     name: "Container Scan - Trivy"
     runs-on: ubuntu-latest
