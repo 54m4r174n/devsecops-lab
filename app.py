@@ -69,3 +69,5 @@ def weak_hash():
 # VULN 9: Debug Mode ON — information disclosure
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
+
+# VULM 10: checking for precommit
