@@ -47,8 +47,7 @@ jobs:
           wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
           tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
           ./gitleaks detect --source . --verbose \
-          && echo "GITLEAKS_STATUS=pass" >> $GITHUB_ENV \
-          || echo "GITLEAKS_STATUS=fail" >> $GITHUB_ENV
+          && echo "GITLEAKS_STATUS=pass" >> $GITHUB_ENV
       - name: Save Status
         if: always()
         run: echo "$GITLEAKS_STATUS" > gitleaks-status.txt
@@ -71,8 +70,7 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r requirements.txt \
-          && echo "SCA_STATUS=pass" >> $GITHUB_ENV \
-          || echo "SCA_STATUS=fail" >> $GITHUB_ENV
+          && echo "SCA_STATUS=pass" >> $GITHUB_ENV
       - name: Save Status
         if: always()
         run: echo "$SCA_STATUS" > sca-status.txt
@@ -98,8 +96,7 @@ jobs:
             --severity CRITICAL,HIGH \
             --exit-code 1 \
             devsecops-lab:latest \
-          && echo "TRIVY_STATUS=pass" >> $GITHUB_ENV \
-          || echo "TRIVY_STATUS=fail" >> $GITHUB_ENV
+          && echo "TRIVY_STATUS=pass" >> $GITHUB_ENV
       - name: Generate SBOM
         if: always()
         run: |
