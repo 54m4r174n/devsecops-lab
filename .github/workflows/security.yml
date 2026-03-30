@@ -25,8 +25,7 @@ jobs:
             --config=p/sql-injection \
             --config=p/command-injection \
             --error \
-            . && echo "SEMGREP_STATUS=pass" >> $GITHUB_ENV \
-            || echo "SEMGREP_STATUS=fail" >> $GITHUB_ENV
+            . && echo "SEMGREP_STATUS=pass" >> $GITHUB_ENV
       - name: Save Status
         run: echo "$SEMGREP_STATUS" > semgrep-status.txt
       - name: Upload Status
